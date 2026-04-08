@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.virtual_environment/
+venv/
+env/
+.env
+
+# PyTorch model files (large)
+*.pt
+*.pth
+*.onnx
+
+# TensorFlow
+*.h5
+*.pb
+saved_model/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (too large for git)
+data/asl_alphabet/train/
+data/asl_alphabet/test/
+data/wlasl/videos/
+data/wlasl/landmarks/
+*.csv
+!data/*.csv
+
+# Experiments output
+experiments/
+
+# Logs
+*.log
+logs/
+
+# MediaPipe cache
+mediapipe/

@@ -11,7 +11,7 @@ An end-to-end machine learning system that translates American Sign Language (AS
 ## Architecture
 
 ```
-Video -> Frame Extraction -> Hand/Pose Detection -> Sign Classification -> LLM Translation -> English Text
+Video -> Segmentation -> Hand/Pose Detection -> Sign Classification -> LLM Translation -> English Text
 ```
 
 ## Project Phases
@@ -53,6 +53,48 @@ make train-lstm              # Train LSTM sequence model
 make evaluate-lstm           # Evaluate on test set
 ```
 
+### Video Segmentation & Keyframe Extraction
+
+Split an ASL video into individual sign clips and extract representative keyframe images using MediaPipe hand landmark heuristics (wrist velocity, hand rest position, hand presence gaps):
+
+```bash
+# Run the full analysis (segment + keyframes + visualization) in one command
+make analyze-video VIDEO=path/to/video.mp4
+
+# Or run each step individually:
+make segment-video VIDEO=path/to/video.mp4          # Segment into clips
+make extract-keyframes VIDEO=path/to/video.mp4       # Extract keyframe images
+make visualize-segmentation VIDEO=path/to/video.mp4   # Generate debug plot
+```
+
+Output is organized per-video:
+
+```
+segments/
+└── <video-name>/
+    ├── clips/                         # one video clip per detected sign
+    │   ├── segment_0000.mp4
+    │   └── ...
+    ├── keyframes/                     # representative images per segment
+    │   ├── seg0000_frame000020.jpg    # short segments get 1 frame
+    │   ├── seg0002_frame000125.jpg    # longer segments get multiple
+    │   ├── seg0002_frame000153.jpg
+    │   └── ...
+    └── segmentation_analysis.png      # debug plot
+```
+
+You can tune thresholds directly:
+
+```bash
+.virtual_environment/bin/python src/preprocessing/video_segmenter.py \
+    --input path/to/video.mp4 \
+    --output-dir segments/ \
+    --min-duration 0.3 \
+    --velocity-threshold 0.01 \
+    --rest-y-threshold 0.75 \
+    --smoothing-window 5
+```
+
 ### Phase 3: Sentence Assembly
 
 ```bash
@@ -66,6 +108,8 @@ make demo                                        # Launch Gradio web demo
 cs6351-ASL-to-Text/
 ├── src/
 │   ├── preprocessing/
+│   │   ├── video_segmenter.py      # Video -> sign clips (landmark heuristics)
+│   │   ├── keyframe_extractor.py   # Video -> representative keyframe images
 │   │   ├── landmark_extractor.py   # MediaPipe hand/holistic landmark extraction
 │   │   └── dataset.py              # PyTorch dataset classes
 │   ├── models/
@@ -80,6 +124,7 @@ cs6351-ASL-to-Text/
 │   └── utils/
 ├── scripts/
 │   ├── download_data.py            # Dataset download helpers
+│   ├── visualize_segmentation.py   # Segmentation debug plots
 │   ├── demo.py                     # Gradio web demo
 │   └── demo_webcam.py              # Real-time webcam demo
 ├── data/                           # Datasets (not tracked in git)

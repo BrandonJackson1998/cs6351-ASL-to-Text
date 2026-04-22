@@ -71,6 +71,31 @@ demo-webcam:
 	$(PYTHON) scripts/demo_webcam.py
 
 # ============================================================
+# Video Segmentation
+# ============================================================
+
+segment-video:
+	$(PYTHON) src/preprocessing/video_segmenter.py --input "$(VIDEO)" --output-dir segments/
+
+segment-video-viz:
+	$(PYTHON) src/preprocessing/video_segmenter.py --input "$(VIDEO)" --output-dir segments/ --visualize
+
+extract-keyframes:
+	PYTHONPATH=. $(PYTHON) src/preprocessing/keyframe_extractor.py --input "$(VIDEO)" --output-dir segments/
+
+visualize-segmentation:
+	$(PYTHON) scripts/visualize_segmentation.py --input "$(VIDEO)" --output-dir segments/
+
+analyze-video:
+	@echo "=== Segmenting video ==="
+	$(PYTHON) src/preprocessing/video_segmenter.py --input "$(VIDEO)" --output-dir segments/
+	@echo "\n=== Extracting keyframes ==="
+	PYTHONPATH=. $(PYTHON) src/preprocessing/keyframe_extractor.py --input "$(VIDEO)" --output-dir segments/
+	@echo "\n=== Generating visualization ==="
+	$(PYTHON) scripts/visualize_segmentation.py --input "$(VIDEO)" --output-dir segments/
+	@echo "\n=== Done ==="
+
+# ============================================================
 # Utilities
 # ============================================================
 
@@ -84,4 +109,6 @@ clean:
 
 .PHONY: venv install install-mac install-pip download-alphabet extract-landmarks \
 	train-baseline evaluate-baseline download-wlasl extract-video-landmarks \
-	train-lstm evaluate-lstm translate demo demo-webcam test clean
+	train-lstm evaluate-lstm translate demo demo-webcam \
+	segment-video segment-video-viz extract-keyframes \
+	visualize-segmentation analyze-video test clean

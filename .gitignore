@@ -40,12 +40,16 @@ saved_model/
 Thumbs.db
 
 # Data (too large for git)
+data/asl_alphabet/
 data/asl_alphabet/train/
 data/asl_alphabet/test/
 data/wlasl/videos/
 data/wlasl/landmarks/
 *.csv
 !data/*.csv
+
+# MediaPipe models (auto-downloaded)
+data/*.task
 
 # Experiments output
 experiments/
@@ -56,3 +60,6 @@ logs/
 
 # MediaPipe cache
 mediapipe/
+
+# Cached video segments and keyframes
+segments/

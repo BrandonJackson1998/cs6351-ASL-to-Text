@@ -20,9 +20,92 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, List
 
+import contextlib
 import cv2
-import mediapipe as mp
 import numpy as np
+
+# Set MEDIAPIPE_VERBOSE=1 to see MediaPipe's C-level logs (suppressed by default).
+_VERBOSE = os.environ.get("MEDIAPIPE_VERBOSE", "0") == "1"
+
+@contextlib.contextmanager
+def _silence_stderr():
+    if _VERBOSE:
+        yield
+        return
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    saved = os.dup(2)
+    os.dup2(devnull, 2)
+    try:
+        yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(saved)
+        os.close(devnull)
+
+with _silence_stderr():
+    import mediapipe as mp
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python.vision import HandLandmarker, HandLandmarkerOptions, RunningMode
+
+_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "hand_landmarker.task")
+
+
+def _download_model():
+    """Download MediaPipe hand_landmarker model if not present."""
+    import sys
+    import subprocess
+
+    model_path = os.path.abspath(_MODEL_PATH)
+    model_dir = os.path.dirname(model_path)
+
+    print(f"MediaPipe model not found at '{model_path}'")
+    print("Downloading hand_landmarker.task (7.5MB) from Google MediaPipe...")
+
+    os.makedirs(model_dir, exist_ok=True)
+
+    url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+
+    # Try curl first (more reliable on macOS)
+    try:
+        subprocess.run(
+            ["curl", "-L", "-o", model_path, url],
+            capture_output=True,
+            check=True
+        )
+        if os.path.isfile(model_path):
+            print(f"✓ Downloaded to {model_path}")
+            return
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    # Fallback to urllib
+    try:
+        import urllib.request
+        urllib.request.urlretrieve(url, model_path)
+        print(f"✓ Downloaded to {model_path}")
+    except Exception as e:
+        print(
+            f"ERROR: Failed to download model: {e}\n"
+            "Please download manually:\n"
+            f"  curl -L -o {model_path} {url}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def _make_video_landmarker():
+    model_path = os.path.abspath(_MODEL_PATH)
+    if not os.path.isfile(model_path):
+        _download_model()
+    options = HandLandmarkerOptions(
+        base_options=mp_python.BaseOptions(model_asset_path=model_path),
+        running_mode=RunningMode.VIDEO,
+        num_hands=2,
+        min_hand_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+    )
+    with _silence_stderr():
+        return HandLandmarker.create_from_options(options)
 
 
 @dataclass
@@ -136,18 +219,13 @@ class VideoSegmenter:
         return segments
 
     def _extract_frame_landmarks(self, video_path: str) -> list[FrameLandmarks]:
-        """Extract per-frame wrist landmarks using MediaPipe Hands."""
+        """Extract per-frame wrist landmarks using MediaPipe HandLandmarker (Tasks API)."""
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise FileNotFoundError(f"Cannot open video: {video_path}")
 
-        hands = mp.solutions.hands.Hands(
-            static_image_mode=False,
-            max_num_hands=2,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
-        )
-
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        landmarker = _make_video_landmarker()
         frame_landmarks = []
         frame_idx = 0
 
@@ -157,25 +235,24 @@ class VideoSegmenter:
                 break
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = hands.process(rgb)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            timestamp_ms = int(frame_idx * 1000 / fps)
+            with _silence_stderr():
+                results = landmarker.detect_for_video(mp_image, timestamp_ms)
 
-            if results.multi_hand_landmarks and results.multi_handedness:
-                # Collect wrist positions per detected hand
+            if results.hand_landmarks and results.handedness:
                 right_wrist = None
                 left_wrist = None
 
-                for hand_landmarks, handedness in zip(
-                    results.multi_hand_landmarks, results.multi_handedness
-                ):
-                    label = handedness.classification[0].label  # "Left" or "Right"
-                    wrist = hand_landmarks.landmark[mp.solutions.hands.HandLandmark.WRIST]
+                for hand_lm, handedness in zip(results.hand_landmarks, results.handedness):
+                    label = handedness[0].category_name  # "Left" or "Right"
+                    wrist = hand_lm[0]  # landmark index 0 = WRIST
 
                     if label == "Right":
                         right_wrist = (wrist.x, wrist.y)
                     else:
                         left_wrist = (wrist.x, wrist.y)
 
-                # Primary wrist: prefer right hand, fallback to left
                 primary = right_wrist or left_wrist
                 fl = FrameLandmarks(
                     frame_idx=frame_idx,
@@ -194,7 +271,7 @@ class VideoSegmenter:
             frame_idx += 1
 
         cap.release()
-        hands.close()
+        landmarker.close()
         return frame_landmarks
 
     def _compute_motion_signal(

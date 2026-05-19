@@ -2,6 +2,9 @@ VENV = .virtual_environment
 PYTHON = $(VENV)/bin/python3
 PIP = $(VENV)/bin/pip
 
+# Set to 1 to show MediaPipe's C-level logs (suppressed by default).
+MEDIAPIPE_VERBOSE ?= 0
+
 # ============================================================
 # Environment Setup
 # ============================================================
@@ -26,39 +29,45 @@ install: venv
 # ============================================================
 
 download-alphabet:
-	$(PYTHON) scripts/download_data.py --dataset alphabet
+	$(PYTHON) scripts/download_data.py --dataset alphabet --output-dir data
+
+download-wlasl-words:
+	$(PYTHON) scripts/download_data.py --dataset wlasl --output-dir data --num-words $(or $(NUM_WORDS),100)
+
+download-all:
+	$(PYTHON) scripts/download_data.py --dataset all --output-dir data --num-words $(or $(NUM_WORDS),100)
 
 extract-landmarks:
-	$(PYTHON) src/preprocessing/landmark_extractor.py --dataset alphabet
+	$(PYTHON) -m src.preprocessing.landmark_extractor --dataset alphabet
 
 train-baseline:
-	$(PYTHON) src/models/train_mlp.py
+	$(PYTHON) -m src.models.train_mlp
 
 evaluate-baseline:
-	$(PYTHON) src/models/evaluate.py --model mlp --checkpoint experiments/latest/best_model.pt
+	$(PYTHON) -m src.models.evaluate --model mlp --checkpoint experiments/latest/best_model.pt
 
 # ============================================================
 # Phase 2: Dynamic Word Recognition
 # ============================================================
 
 download-wlasl:
-	$(PYTHON) scripts/download_data.py --dataset wlasl --num-words 100
+	$(PYTHON) scripts/download_data.py --dataset wlasl --output-dir data --num-words 100
 
 extract-video-landmarks:
-	$(PYTHON) src/preprocessing/landmark_extractor.py --dataset wlasl
+	$(PYTHON) -m src.preprocessing.landmark_extractor --dataset wlasl
 
 train-lstm:
-	$(PYTHON) src/models/train_lstm.py
+	$(PYTHON) -m src.models.train_lstm
 
 evaluate-lstm:
-	$(PYTHON) src/models/evaluate.py --model lstm --checkpoint experiments/latest/best_model.pt
+	$(PYTHON) -m src.models.evaluate --model lstm --checkpoint experiments/latest/best_model.pt
 
 # ============================================================
 # Phase 3: Sentence Assembly
 # ============================================================
 
 translate:
-	$(PYTHON) src/agents/gloss_translator.py --glosses "$(GLOSSES)"
+	$(PYTHON) -m src.agents.gloss_translator --glosses "$(GLOSSES)"
 
 # ============================================================
 # End-to-End Pipeline
@@ -71,14 +80,32 @@ demo-webcam:
 	$(PYTHON) scripts/demo_webcam.py
 
 # ============================================================
+# Frame Analysis & Sequence
+# ============================================================
+
+analyze-frame:
+	@PYTHONPATH=. GLOG_minloglevel=3 TF_CPP_MIN_LOG_LEVEL=3 MEDIAPIPE_VERBOSE=$(MEDIAPIPE_VERBOSE) $(PYTHON) scripts/analyze_frame.py \
+		--frame "$(FRAME)" \
+		--checkpoint "$(or $(CHECKPOINT),experiments/latest/best_model.pt)" \
+		$(if $(VERBOSE),--verbose,)
+
+string-deltas:
+	@PYTHONPATH=. MEDIAPIPE_VERBOSE=$(MEDIAPIPE_VERBOSE) $(PYTHON) scripts/string_deltas.py \
+		--input "$(VIDEO)" \
+		--checkpoint "$(or $(CHECKPOINT),experiments/latest/best_model.pt)" \
+		--output-dir segments/ \
+		--confidence-threshold $(or $(CONFIDENCE),0.0) \
+		$(if $(VERBOSE),--verbose,)
+
+# ============================================================
 # Video Segmentation
 # ============================================================
 
 segment-video:
-	$(PYTHON) src/preprocessing/video_segmenter.py --input "$(VIDEO)" --output-dir segments/
+	$(PYTHON) -m src.preprocessing.video_segmenter --input "$(VIDEO)" --output-dir segments/
 
 segment-video-viz:
-	$(PYTHON) src/preprocessing/video_segmenter.py --input "$(VIDEO)" --output-dir segments/ --visualize
+	$(PYTHON) -m src.preprocessing.video_segmenter --input "$(VIDEO)" --output-dir segments/ --visualize
 
 extract-keyframes:
 	PYTHONPATH=. $(PYTHON) src/preprocessing/keyframe_extractor.py --input "$(VIDEO)" --output-dir segments/
@@ -88,7 +115,7 @@ visualize-segmentation:
 
 analyze-video:
 	@echo "=== Segmenting video ==="
-	$(PYTHON) src/preprocessing/video_segmenter.py --input "$(VIDEO)" --output-dir segments/
+	$(PYTHON) -m src.preprocessing.video_segmenter --input "$(VIDEO)" --output-dir segments/
 	@echo "\n=== Extracting keyframes ==="
 	PYTHONPATH=. $(PYTHON) src/preprocessing/keyframe_extractor.py --input "$(VIDEO)" --output-dir segments/
 	@echo "\n=== Generating visualization ==="
@@ -107,8 +134,11 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 
-.PHONY: venv install install-mac install-pip download-alphabet extract-landmarks \
-	train-baseline evaluate-baseline download-wlasl extract-video-landmarks \
+.PHONY: venv install install-mac install-pip \
+	download-alphabet download-wlasl download-wlasl-words download-all \
+	extract-landmarks train-baseline evaluate-baseline \
+	download-wlasl extract-video-landmarks \
 	train-lstm evaluate-lstm translate demo demo-webcam \
+	analyze-frame string-deltas \
 	segment-video segment-video-viz extract-keyframes \
 	visualize-segmentation analyze-video test clean

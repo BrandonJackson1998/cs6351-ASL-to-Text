@@ -136,6 +136,17 @@ transcribe-holds:
 		$(if $(SMOOTH),--smooth-window $(SMOOTH),) \
 		$(if $(OUT_JSON),--out-json $(OUT_JSON),)
 
+# CTC v2 used as a per-frame letter classifier (argmax over letter classes,
+# ignore blank), feeding into the same hold decoder as transcribe-holds.
+# A direct apples-to-apples per-frame comparison vs Random Forest.
+transcribe-ctc-holds:
+	@PYTHONPATH=. MEDIAPIPE_VERBOSE=$(MEDIAPIPE_VERBOSE) $(PYTHON) scripts/transcribe_ctc_holds.py \
+		--input "$(VIDEO)" \
+		$(if $(CHECKPOINT),--checkpoint $(CHECKPOINT),) \
+		$(if $(MIN_HOLD),--min-hold-seconds $(MIN_HOLD),) \
+		$(if $(SMOOTH),--smooth-window $(SMOOTH),) \
+		$(if $(OUT_JSON),--out-json $(OUT_JSON),)
+
 # CTC v2 with optional per-frame emission fusion. Best for fast in-distribution
 # fingerspelling (FSWild-style real words).
 transcribe-v2-fusion:
@@ -180,6 +191,6 @@ clean:
 	train-rf train-mppca train-ppca refit-ppca-fswild train-svm \
 	train-baseline evaluate-baseline evaluate-ppca visualize-ppca \
 	train-ctc-v2 evaluate-ctc-v2 evaluate-fusion evaluate-fusion-rf \
-	transcribe-holds transcribe-v2-fusion analyze-frame \
+	transcribe-holds transcribe-ctc-holds transcribe-v2-fusion analyze-frame \
 	model-comparison-grid \
 	test clean

@@ -1,323 +1,307 @@
-# ASL Video-to-Text Translation
+# ASL Video-to-Text
 
-**CS-6351: AI & ML -- Course Project**  
+**CS-6351: AI & ML — Course Project**
 **Team:** Brandon Jackson & Kevin Bateman
 
-## Project Status
+A pipeline that takes a fingerspelling video and produces a letter sequence,
+using MediaPipe Hands for landmark extraction and a stack of classical and
+neural ML models for letter recognition.
 
-**Phase 1 Complete:** Baseline fingerspelling classifier trained and tested.
-
-- ✅ Full pipeline implemented (download → train → evaluate → inference)
-- ✅ MLP model trained on [ASL Alphabet dataset](https://www.kaggle.com/datasets/grassknoted/asl-alphabet) (87k static images)
-- ⚠️ **Current accuracy: 7.7%** on [test video](https://www.youtube.com/shorts/Fd29yKrZttE) (A-Z fingerspelling)
-- 🔧 **Known issue:** Training/test mismatch (static images vs. dynamic video)
-
-**Next:** Debug segmentation, add data augmentation, improve keyframe selection.
+See [`docs/STATUS_REPORT.md`](docs/STATUS_REPORT.md) for the full experiment
+log and rationale behind the final architecture.
 
 ---
 
-## Prerequisites
+## Current state
 
-Before running the pipeline, ensure you have:
+The current model is a **Random Forest** trained on a class-balanced merge
+of Kaggle ASL Alphabet (clean stills) and ChicagoFSWild forced-aligned
+frames (real video). Per-frame letter classification reaches **82.7% test
+accuracy** on real fingerspelling video frames.
 
-### 1. Python 3.12+
-```bash
-python3 --version  # Should be 3.12 or higher
-```
+Given a video, the pipeline produces a string of fingerspelled letters.
 
-### 2. Kaggle Authentication (Required for Training)
+### Limitations
 
-The pipeline downloads training data from Kaggle. You need a free Kaggle account and authentication credentials.
+- **No spaces yet.** Output is a single string with consecutive letter
+  holds collapsed. Word boundaries are visible to humans but not segmented.
+- **No spell correction.** Noise letters appear between recognized words
+  (e.g., `FIGHFIGPDATEY...`).
+- **J and Z are weak.** Both are *motion-based* letters (a curl for J, a
+  Z-trace for Z). The per-frame classifier sees only static hand shapes,
+  so it can't distinguish them reliably.
 
-**Setup (choose ONE method):**
-
-#### Method 1: Access Token (Recommended - New)
-
-1. Create account at [kaggle.com](https://www.kaggle.com)
-2. Go to [kaggle.com/settings](https://www.kaggle.com/settings) → API section
-3. Click "Create New Token"
-4. Copy and run the command Kaggle provides:
-
-```bash
-mkdir -p ~/.kaggle && echo KGAT_your_token_here > ~/.kaggle/access_token && chmod 600 ~/.kaggle/access_token
-```
-
-**Verify:**
-```bash
-[ -f ~/.kaggle/access_token ] && echo "✓ Access token ready" || echo "✗ Token missing"
-```
-
-#### Method 2: Legacy API Key (kaggle.json)
-
-1. Go to [kaggle.com/settings](https://www.kaggle.com/settings) → API section
-2. Click "Create New API Token" (downloads `kaggle.json`)
-3. Install the file:
-
-```bash
-mkdir -p ~/.kaggle
-mv ~/Downloads/kaggle.json ~/.kaggle/
-chmod 600 ~/.kaggle/kaggle.json
-```
-
-**Verify:**
-```bash
-[ -f ~/.kaggle/kaggle.json ] && echo "✓ API key ready" || echo "✗ Key missing"
-```
-
-**Note:** The pipeline supports both methods. Use whichever Kaggle provides you.
-
-### 3. System Dependencies
-
-**macOS:**
-```bash
-brew install python@3.12 ffmpeg
-```
-
-**Linux (Ubuntu/Debian):**
-```bash
-sudo apt-get update
-sudo apt-get install -y python3.12 python3.12-venv ffmpeg
-```
+These are tracked in [Future work](#future-work) below.
 
 ---
 
-## Quick Start
+## Headline results
+
+| Model | Task | Test result |
+|---|---|---|
+| Mixture-of-PPCAs (Kaggle) | Static image → letter | **98.2% accuracy** |
+| **Random Forest (balanced)** | Per-frame letter classification on real video | **82.7% accuracy** |
+| **CTC Bi-LSTM v2** | Real fingerspelled video → letter sequence | **47.1% LER on FSWild test** |
+
+On `example_videos/Finger.mp4` (10 fingerspelled fruit names, recorded
+fresh), the Random Forest hold decoder finds **all 10 target words** as
+recognizable substrings.
+
+---
+
+## Quick start
 
 ### Setup
 
 ```bash
-# macOS (~2-3 minutes)
-make install-mac
-
-# Linux (~2-3 minutes)
-make install
+make install-mac         # macOS
+make install             # Linux
 ```
 
-This creates a virtual environment and installs Python dependencies (PyTorch, OpenCV, MediaPipe, etc.).
+The MediaPipe Hands model (`data/hand_landmarker.task`, 7.5 MB) downloads
+automatically on first use.
 
-**Note:** The MediaPipe hand detection model (`data/hand_landmarker.task`, 7.5MB) will be automatically downloaded on first use.
-
-### Option A: Automated Pipeline (Recommended)
-
-**Prerequisites:** Kaggle authentication required (see Prerequisites section above)
+### Demo: video → letter sequence
 
 ```bash
-./run_full_pipeline.sh                # Uses cached data when available
-./run_full_pipeline.sh --clear-cache  # Fresh start
+make transcribe-holds VIDEO=example_videos/Finger.mp4
 ```
 
-**Time:** ~30-40 min (CPU) first run, seconds if cached.
+Outputs:
 
----
+```
+FIGHFIGPDATEYDATEQLIMENLIMEQGUAVANGRAUAQOLIVENOLIUEQPRNEPRETN
+GONANGQPAPAYANANAYAGUMUATNKRNATNASIONFUITNASIONFRUIT
+```
 
-### Option B: Manual Step-by-Step
+You can read the fruit names through the noise: `FIG`, `DATE`, `LIME`,
+`GUAVA`, `OLIVE`, `(P)RUNE`, `(M)ANGO`, `PAPAYA`, `(PA)SSIONFRUIT`,
+`FRUIT`.
 
-#### 1. Train the Fingerspelling Classifier
+### Side-by-side model visualization
 
 ```bash
-make download-alphabet       # ~5-10 min (1GB download, requires Kaggle API token)
-make extract-landmarks       # ~15-20 min (87k images → hand landmarks, cached)
-make train-baseline          # ~10-15 min (20 epochs, CPU) / ~2-3 min (GPU)
-make evaluate-baseline       # ~1-2 min
+make model-comparison-grid VIDEO=example_videos/Finger.mp4
 ```
 
-**Prerequisites:** Kaggle API token at `~/.kaggle/kaggle.json` (get from [kaggle.com/settings](https://www.kaggle.com/settings))
+Generates `segments/<video>/model_comparison_grid.png` with one frame per
+detected hold and predictions from RF / MPPCA / PPCA / CTC for that frame.
 
-#### 2. Analyze ASL Video
+---
+
+## Pipeline
+
+```
+video
+  │
+  ▼ MediaPipe Hands per frame  →  T × 63 normalized landmarks
+  │
+  ├── Random Forest per-frame  ─►  letter holds  ─►  letter sequence
+  │   (primary, used by `make transcribe-holds`)
+  │
+  └── CTC Bi-LSTM v2 + char-LM beam search  ─►  letter sequence
+      (alternative, used by `make transcribe-v2-fusion`)
+```
+
+The pipeline produces a noisy letter sequence. A planned LLM agent layer
+will turn these into clean English; not yet implemented.
+
+---
+
+## Reproducing from scratch
+
+The whole repo is regenerable from a single command (≈ 2 hours on CPU,
+≈ 13 GB disk):
 
 ```bash
-make string-deltas VIDEO=https://www.youtube.com/shorts/Fd29yKrZttE CONFIDENCE=0.7 VERBOSE=1
+make build-data
 ```
 
-**Time:** ~1-2 min first run, ~1-2 sec cached. Add `CONFIDENCE=0.7` to filter low-confidence predictions.
+This runs in dependency order:
 
----
+1. Download Kaggle ASL Alphabet
+2. Extract Kaggle landmarks
+3. Download ChicagoFSWild (~13 GB)
+4. Extract FSWild landmark sequences
+5. Train CTC v2 (needed for forced alignment)
+6. Forced-align FSWild → per-letter frame buckets
+7. Build the balanced merged training set
 
-### Option C: Clear Caches
+After `make build-data` finishes, train per-frame models:
 
 ```bash
-# Clear everything (re-run full pipeline)
-rm -rf data/asl_alphabet/ experiments/ segments/
-
-# Clear only trained models (retrain from cached landmarks)
-rm -rf experiments/
-
-# Clear only video analyses (reprocess videos)
-rm -rf segments/
-
-# Clear specific video
-rm -rf segments/<video-id>/
+make train-rf EXP=rf_balanced DATA=data/balanced_letter_frames
+make train-mppca EXP=mppca_balanced DATA=data/balanced_letter_frames KS="3 5 8"
+make refit-ppca-fswild EXP=ppca_balanced DATA=data/balanced_letter_frames
 ```
 
----
+### Required tokens
 
-### Check Current State
+A Kaggle API token is needed (both datasets are Kaggle-hosted). Either:
 
 ```bash
-# View what's cached
-ls -lh data/asl_alphabet/           # Training data
-ls -lh experiments/latest/          # Trained model
-ls -lh segments/                    # Video analyses
+# Recommended (new-style access token)
+mkdir -p ~/.kaggle && echo KGAT_your_token > ~/.kaggle/access_token && chmod 600 ~/.kaggle/access_token
 
-# Verify pipeline readiness
-[ -f experiments/latest/best_model.pt ] && echo "✓ Model ready" || echo "✗ Need to train"
+# Or legacy
+mkdir -p ~/.kaggle && mv ~/Downloads/kaggle.json ~/.kaggle/ && chmod 600 ~/.kaggle/kaggle.json
 ```
 
 ---
 
-## Pipeline Architecture
+## Models we ship
 
-```
-Video → Segmentation → Keyframe Extraction → Hand Landmarks → MLP Classifier → Letter Sequence
-         (cached)        (cached)              (per-frame)      (trained)        (deduplicated)
-```
+All trained models live under `experiments/`. The `latest` symlink points at
+the Phase 1 PPCA artifact (kept for backward compatibility).
 
-**Frame-rate independence:** All temporal parameters use seconds (e.g., `min_segment_duration=0.5s`, `min_spacing_seconds=0.4s`), converted to frames via fps. Works correctly on slow-motion (60-120fps), real-time (30fps), or time-lapse (15fps) videos.
-
-### Caching Strategy
-
-- **Video segmentation**: Clips cached to `segments/<video-id>/clips/`. First run: ~10-30s. Cached: instant.
-- **Keyframe extraction**: Images cached to `segments/<video-id>/keyframes/`. First run: ~10-30s. Cached: instant.
-- **Landmark extraction (training)**: Features cached to `data/asl_alphabet/landmarks/`. First run: ~15-20 min (87k images). Cached: instant.
-- **Model checkpoints**: Saved to `experiments/<timestamp>/best_model.pt`. Symlinked as `experiments/latest/`. Training: ~10-15 min (CPU) / ~2-3 min (GPU).
+| Path | Model | Trained on | Use |
+|---|---|---|---|
+| `experiments/rf_balanced/` | **Random Forest** | Balanced Kaggle + FSWild (4k/letter) | Per-frame letter classification (primary) |
+| `experiments/mppca_balanced/` | Mixture of PPCAs (5–8 / letter) | Balanced merged | Per-frame, generative ablation |
+| `experiments/ppca_balanced/` | PPCA + Mixture-of-PPCAs (Phase 1) | Balanced merged | Per-frame baseline |
+| `experiments/latest_ctc_v2/` | **CTC Bi-LSTM v2** (3-layer × 256-hidden) | FSWild + Kaggle, weighted | Sequence model |
+| `experiments/svm_fswild/` | RBF-SVM | FSWild only | Ablation |
 
 ---
 
-## Current Status & Performance
+## Inference
 
-**Model:** 3-layer MLP trained on ASL Alphabet dataset (87k static images, 29 classes)  
-**Checkpoint:** `experiments/latest/best_model.pt` (246KB)
-
-### Test Results
-
-**Test video:** A-Z fingerspelling ([youtube.com/shorts/Fd29yKrZttE](https://www.youtube.com/shorts/Fd29yKrZttE))
+### Random Forest hold decoder (recommended)
 
 ```bash
-make string-deltas VIDEO=https://www.youtube.com/shorts/Fd29yKrZttE CONFIDENCE=0.7
+make transcribe-holds VIDEO=path/to/video.mp4
 ```
 
-**Results:**
-- **Positional accuracy: 7.7%** (2/26 letters in correct position)
-- **Letter recall: 65.4%** (17/26 letters detected somewhere in sequence)
-- **Model confidence: 70-100%** (high confidence, but mostly incorrect)
+Optional flags:
+- `EMISSION=experiments/mppca_balanced/mixture MPPCA=1` — use MPPCA
+- `MIN_HOLD=0.5` — minimum letter-hold duration (seconds)
+- `SMOOTH=11` — sliding-window majority size (frames)
 
-**Key Issue:** Model overconfident on wrong predictions. Trained on static frontal images, tested on dynamic video with motion.
+### CTC sequence model (fast in-distribution fingerspelling)
 
-### Known Problems
+```bash
+# Pure CTC
+make transcribe-v2-fusion VIDEO=path/to/video.mp4 LAM=0
 
-1. **Segmentation/Keyframe Selection** - Capturing transition frames instead of letter holds
-2. **Training/Test Mismatch** - Static training images vs. dynamic video with motion blur
-3. **Missing Letters** - Cannot detect: A, G, H, J, M, P, Q, R, U
-4. **Over-segmentation** - 31 predictions for 26 letters (duplicates: C, E, N, S, X, Y, Z)
+# CTC + Random Forest fusion
+make transcribe-v2-fusion VIDEO=path/to/video.mp4 EMISSION=experiments/rf_balanced LAM=0.25
+```
 
-### Next Steps
+### Evaluations
 
-**Priority fixes:**
-1. Visualize keyframes to debug segmentation (`segments/Fd29yKrZttE/keyframes/`)
-2. Add data augmentation (rotation, brightness, motion blur)
-3. Improve keyframe selection (better velocity thresholds)
-4. Train on video frames, not just static images
-
-**Future improvements:**
-- Temporal models (LSTM/Transformer) for sequence context
-- Multi-frame aggregation instead of single-frame classification
-- Calibrate confidence scores (currently miscalibrated)
+```bash
+make evaluate-ppca SPLIT=test            # Phase 1 PPCA on Kaggle test
+make evaluate-ctc-v2                      # CTC v2 on FSWild test
+make evaluate-fusion-rf RF_DIR=experiments/rf_balanced
+```
 
 ---
 
-## Datasets
-
-**Training:** [ASL Alphabet](https://www.kaggle.com/datasets/grassknoted/asl-alphabet) - 87k static images, 29 classes (A-Z + SPACE, DELETE, NOTHING)  
-**Test video:** [youtube.com/shorts/Fd29yKrZttE](https://www.youtube.com/shorts/Fd29yKrZttE) - A-Z fingerspelling demo  
-**Future (Phase 2):** [WLASL](https://www.kaggle.com/datasets/sttaseen/wlasl2000-resized) - 2k word-level video clips
-
----
-
-## Project Structure
+## Project structure
 
 ```
 cs6351-ASL-to-Text/
-├── run_full_pipeline.sh            # Automated full pipeline script
-├── Makefile                        # CLI commands
-├── requirements.txt                # Python dependencies
+├── docs/
+│   ├── STATUS_REPORT.md        Full experiment log + rationale
+│   ├── PPCA_PLAN.md            Phase 1 plan
+│   ├── CTC_PLAN.md             Phase 1c plan
+│   ├── OPENHANDS_PLAN.md       Phase 2 plan (deferred — see Future work)
+│   └── FINAL_PLAN.md           Consolidation plan
+│
 ├── src/
 │   ├── preprocessing/
-│   │   ├── video_segmenter.py      # Video → sign clips (wrist velocity heuristics)
-│   │   ├── keyframe_extractor.py   # Clips → representative keyframe images
-│   │   ├── landmark_extractor.py   # MediaPipe hand landmark extraction
-│   │   └── dataset.py              # PyTorch dataset loaders
-│   ├── models/
-│   │   ├── mlp.py                  # MLP fingerspelling classifier
-│   │   ├── train_mlp.py            # Training script
-│   │   └── evaluate.py             # Evaluation metrics
-│   └── agents/                     # (stub) Future LLM translation layer
+│   │   ├── landmark_extractor.py       MediaPipe Hands → 63D
+│   │   ├── dataset.py                  ASLAlphabetDataset (per-letter splits)
+│   │   ├── combined_dataset.py         FSWild + Kaggle for CTC training
+│   │   ├── chicagofswild.py            FSWild video → landmark sequences
+│   │   ├── fswild_letter_frames.py     CTC forced-align → per-letter frames
+│   │   ├── balanced_letter_frames.py   Merge + balance + augment
+│   │   ├── temporal_augment.py         Time-warp / dropout / jitter
+│   │   └── augment.py                  Landmark jitter / rotate / mirror
+│   │
+│   └── models/
+│       ├── ppca.py                     Tipping-Bishop PPCA
+│       ├── ppca_classifier.py          PPCALogisticClassifier + Mixture
+│       ├── mppca.py                    Mixture of PPCAs (EM)
+│       ├── train_ppca.py
+│       ├── train_mppca.py
+│       ├── train_rf.py                 ★ Random Forest (the headliner)
+│       ├── train_svm.py                RBF-SVM ablation
+│       ├── refit_ppca_fswild.py        Refit PPCA on balanced data
+│       ├── ctc_lstm.py                 Constants used by decoder
+│       ├── ctc_lstm_v2.py              3-layer × 256 Bi-LSTM
+│       ├── train_ctc_v2.py
+│       ├── ctc_forced_align.py         Constrained Viterbi
+│       ├── decode_ctc.py               Greedy + beam + LM-aware beam
+│       ├── char_lm.py                  6-gram char language model
+│       ├── evaluate.py                 PPCA / MLP eval
+│       ├── mlp.py                      Phase 1 MLP baseline
+│       └── train_mlp.py
+│
 ├── scripts/
-│   ├── download_data.py            # Kaggle dataset downloader
-│   ├── analyze_frame.py            # Single-frame inference
-│   ├── string_deltas.py            # End-to-end video → letter sequence
-│   └── visualize_segmentation.py   # Segmentation debug plots
-├── data/                           # Datasets (gitignored)
-│   ├── asl_alphabet/               # ASL Alphabet images + landmarks
-│   └── hand_landmarker.task        # MediaPipe model file
-├── experiments/                    # Model checkpoints (gitignored)
-│   └── latest/                     # Symlink to most recent training run
-├── segments/                       # Video analysis outputs (gitignored)
-│   └── <video-id>/
-│       ├── clips/                  # Segmented video clips
-│       ├── keyframes/              # Extracted keyframe images
-│       └── predictions.json        # Model predictions + deduped sequence
-├── Makefile                        # CLI commands
-└── requirements.txt                # Python dependencies
+│   ├── transcribe_holds.py             ★ Primary inference (RF hold decoder)
+│   ├── transcribe_v2_fusion.py         CTC v2 + optional fusion
+│   ├── model_comparison_grid.py        4-model side-by-side viz
+│   ├── evaluate_ctc_v2.py              One-shot test eval
+│   ├── evaluate_fusion.py              Fusion sweep (PPCA emission)
+│   ├── evaluate_fusion_rf.py           Fusion sweep (RF emission)
+│   ├── analyze_frame.py                Phase 1 single-frame inference
+│   ├── visualize_ppca.py               PPCA visualizations
+│   ├── download_data.py                Kaggle ASL Alphabet downloader
+│   └── download_fswild.py              ChicagoFSWild downloader
+│
+├── data/                                Datasets (gitignored, regenerable)
+├── experiments/                         Trained model checkpoints (gitignored)
+├── segments/                            Per-video pipeline outputs (gitignored)
+├── example_videos/                      Demo videos
+├── Makefile
+└── requirements.txt
 ```
 
 ---
 
-## Tech Stack
+## Future work
+
+These were scoped out for the course project and are good candidates for a
+follow-up:
+
+- **Word boundary / spacing detection.** Output is currently one continuous
+  string. Hand-drop gaps and longer pauses are visible in the landmark
+  stream but the current decoder doesn't use them.
+- **Spell correction / dictionary snapping.** Snap noisy substrings to the
+  closest English word via edit distance against a vocabulary. Cheap to
+  build, would clean up demo output substantially.
+- **Motion-based letters (J, Z).** These need a temporal model that sees
+  finger trajectories, not single-frame poses. The current RF treats every
+  frame independently and can't see the J curl or Z trace.
+- **LLM agent layer (Phase 3).** Take noisy letter sequences and produce
+  clean English text. Plan in [`docs/CTC_PLAN.md`](docs/CTC_PLAN.md).
+- **Word-level sign recognition (Phase 2).** [OpenHands](https://github.com/AI4Bharat/OpenHands)
+  is a pretrained PyTorch toolkit with WLASL2000 checkpoints. We had it
+  integrated and it works out of the box, but stripped it out to keep the
+  repo focused on fingerspelling. Plan: [`docs/OPENHANDS_PLAN.md`](docs/OPENHANDS_PLAN.md).
+- **Adaptive thresholds per video.** Hold-duration thresholds were
+  hard-coded; a per-video calibration based on the input's typical hold
+  length would generalize across signing speeds.
+
+---
+
+## Tech stack
 
 | Component | Tool |
-|-----------|------|
-| Hand Detection | MediaPipe Hands (21-point landmarks) |
-| Video Processing | OpenCV |
-| Model Training | PyTorch |
-| Dataset | ASL Alphabet (Kaggle) |
-
----
-
-## Makefile Reference
-
-**Setup:**
-- `make install` / `make install-mac` — Install dependencies (~2-3 min)
-
-**Training:**
-- `make download-alphabet` — Download training data (~5-10 min, 1GB)
-- `make extract-landmarks` — Extract hand landmarks, cached (~15-20 min first run, instant thereafter)
-- `make train-baseline` — Train MLP classifier (~10-15 min CPU / ~2-3 min GPU)
-- `make evaluate-baseline` — Evaluate model (~1-2 min)
-
-**Inference:**
-- `make string-deltas VIDEO=<path>` — Full pipeline, video → letters (~1-2 min first run, ~1-2 sec cached)
-- `make analyze-frame FRAME=<path>` — Single-frame prediction (<1 sec)
-- `make segment-video VIDEO=<path>` — Segment video only (~10-30 sec)
-- `make extract-keyframes VIDEO=<path>` — Extract keyframes only (~10-30 sec)
-
-**Flags:**
-- `VERBOSE=1` — Show per-frame predictions
-- `CONFIDENCE=<float>` — Filter predictions below threshold (default: 0.0)
-- `CHECKPOINT=<path>` — Use specific model checkpoint
-
----
-
-## Team Responsibilities
-
-| Area | Owner |
-|------|-------|
-| Video segmentation, keyframe extraction, preprocessing pipeline | Brandon Jackson |
-| Model training, inference scripts, evaluation | Kevin Bateman |
-| Integration, testing, documentation | Both |
+|---|---|
+| Hand detection | MediaPipe Hands (21 keypoints × 3 = 63 features) |
+| Video processing | OpenCV |
+| ML modeling | scikit-learn (RF, SVM, LogReg), PyTorch (CTC LSTM), custom (PPCA, MPPCA) |
+| Datasets | [Kaggle ASL Alphabet](https://www.kaggle.com/datasets/grassknoted/asl-alphabet), [ChicagoFSWild](https://home.ttic.edu/~klivescu/ChicagoFSWild.htm) |
+| Hardware target | CPU (Mac, no GPU) |
 
 ---
 
 ## References
 
-1. Abeyta et al. *ASL Alphabet Dataset*. Kaggle, 2018.
-2. Google. *MediaPipe Hands*.
+1. Tipping & Bishop (1999). *Probabilistic Principal Component Analysis.* JRSS-B 61(3).
+2. Tipping & Bishop (1999). *Mixtures of Probabilistic Principal Component Analyzers.* Neural Computation 11(2).
+3. Graves et al. (2006). *Connectionist Temporal Classification.* ICML.
+4. Shi et al. (2018). *American Sign Language fingerspelling recognition in the wild.* IEEE SLT. (ChicagoFSWild)
+5. Breiman (2001). *Random Forests.* Machine Learning 45(1).

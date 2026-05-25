@@ -1,40 +1,28 @@
-# Deep Learning
+# Deep Learning (CTC LSTM v2)
 torch>=2.0.0
-torchvision>=0.15.0
 
-# Pose/Hand Extraction
+# Hand-pose extraction
 mediapipe==0.10.14
 
-# Video Processing
+# Video / image
 opencv-python>=4.8.0
-yt-dlp>=2024.1.0
 
-# Data & ML Utilities
+# Numeric + ML
 numpy>=1.24.0
-pandas>=2.0.0
 scikit-learn>=1.3.0
 
 # Visualization
 matplotlib>=3.7.0
-seaborn>=0.12.0
 
-# Progress Bars
+# Progress bars
 tqdm>=4.65.0
 
-# Image Processing
+# Image I/O for visualizations
 Pillow>=10.0.0
 
-# Dataset Download
+# Datasets
 kaggle>=1.5.0
+kagglehub>=0.3.0
 
-# LLM Agent (Phase 3)
-anthropic>=0.25.0
-
-# Demo UI
-gradio>=4.0.0
-
-# Text-to-Speech (Bonus)
-gTTS>=2.3.0
-
-# Notebook Support
-jupyter>=1.0.0
+# Tests
+pytest>=8.0.0

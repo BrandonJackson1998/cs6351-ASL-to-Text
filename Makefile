@@ -48,6 +48,14 @@ download-alphabet:
 extract-landmarks:
 	$(PYTHON) -m src.preprocessing.landmark_extractor --dataset alphabet
 
+# Extract hand crop images (200x200) from Kaggle alphabet for CNN training
+extract-hand-crops:
+	$(PYTHON) scripts/extract_hand_crops.py \
+		--dataset kaggle \
+		--input data \
+		--output data/hand_crops_kaggle \
+		$(if $(SIZE),--size $(SIZE),)
+
 # Download ChicagoFSWild from Kaggle and extract frames (~13 GB)
 download-fswild:
 	PYTHONPATH=. $(PYTHON) scripts/download_fswild.py
@@ -135,6 +143,17 @@ transcribe-holds:
 		$(if $(MIN_HOLD),--min-hold-seconds $(MIN_HOLD),) \
 		$(if $(SMOOTH),--smooth-window $(SMOOTH),) \
 		$(if $(OUT_JSON),--out-json $(OUT_JSON),)
+
+# ENSEMBLE: RF + PPCA weighted voting. Expected 2-4% accuracy improvement.
+transcribe-ensemble:
+	@PYTHONPATH=. MEDIAPIPE_VERBOSE=$(MEDIAPIPE_VERBOSE) $(PYTHON) scripts/transcribe_ensemble.py \
+		--input "$(VIDEO)" \
+		$(if $(RF_MODEL),--rf-model $(RF_MODEL),) \
+		$(if $(PPCA_MODEL),--ppca-model $(PPCA_MODEL),) \
+		$(if $(RF_WEIGHT),--rf-weight $(RF_WEIGHT),) \
+		$(if $(MIN_HOLD),--min-hold $(MIN_HOLD),) \
+		$(if $(OUTPUT),--output $(OUTPUT),) \
+		$(if $(VERBOSE),--verbose,)
 
 # CTC v2 used as a per-frame letter classifier (argmax over letter classes,
 # ignore blank), feeding into the same hold decoder as transcribe-holds.

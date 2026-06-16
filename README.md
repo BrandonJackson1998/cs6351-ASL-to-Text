@@ -16,22 +16,18 @@ log and rationale behind the final architecture.
 
 The current model is a **Random Forest** trained on a class-balanced merge
 of Kaggle ASL Alphabet (clean stills) and ChicagoFSWild forced-aligned
-frames (real video). Per-frame letter classification reaches **82.7% test
+frames (real video). Per-frame letter classification reaches **83% test
 accuracy** on real fingerspelling video frames.
 
 Given a video, the pipeline produces a string of fingerspelled letters.
 
 ### Limitations
 
-- **No spaces yet.** Output is a single string with consecutive letter
+- **No automatic spacing.** Output is a single string with consecutive letter
   holds collapsed. Word boundaries are visible to humans but not segmented.
-- **No spell correction.** Noise letters appear between recognized words
-  (e.g., `FIGHFIGPDATEY...`).
-- **J and Z are weak.** Both are *motion-based* letters (a curl for J, a
-  Z-trace for Z). The per-frame classifier sees only static hand shapes,
-  so it can't distinguish them reliably.
-
-These are tracked in [Future work](#future-work) below.
+- **Noisy output.** Filler letters appear between words during hand transitions.
+- **J and Z are weak.** Both are *motion-based* letters requiring temporal 
+  models to see finger trajectories.
 
 ---
 
@@ -43,9 +39,8 @@ These are tracked in [Future work](#future-work) below.
 | **Random Forest (balanced)** | Per-frame letter classification on real video | **82.7% accuracy** |
 | **CTC Bi-LSTM v2** | Real fingerspelled video → letter sequence | **47.1% LER on FSWild test** |
 
-On `example_videos/Finger.mp4` (10 fingerspelled fruit names, recorded
-fresh), the Random Forest hold decoder finds **all 10 target words** as
-recognizable substrings.
+On test videos with 10 fingerspelled fruit names, the Random Forest hold 
+decoder finds **all 10 target words** as recognizable substrings.
 
 ---
 
@@ -63,11 +58,13 @@ automatically on first use.
 
 ### Demo: video → letter sequence
 
+**Note:** Models and example videos are not included in the repo. Train models with `make build-data` first.
+
 ```bash
-make transcribe-holds VIDEO=example_videos/Finger.mp4
+make transcribe-holds VIDEO=path/to/video.mp4
 ```
 
-Outputs:
+Example output from a fruit-naming video:
 
 ```
 FIGHFIGPDATEYDATEQLIMENLIMEQGUAVANGRAUAQOLIVENOLIUEQPRNEPRETN
@@ -78,15 +75,6 @@ You can read the fruit names through the noise: `FIG`, `DATE`, `LIME`,
 `GUAVA`, `OLIVE`, `(P)RUNE`, `(M)ANGO`, `PAPAYA`, `(PA)SSIONFRUIT`,
 `FRUIT`.
 
-### Side-by-side model visualization
-
-```bash
-make model-comparison-grid VIDEO=example_videos/Finger.mp4
-```
-
-Generates `segments/<video>/model_comparison_grid.png` with one frame per
-detected hold and predictions from RF / MPPCA / PPCA / CTC for that frame.
-
 ---
 
 ## Pipeline
@@ -96,15 +84,12 @@ video
   │
   ▼ MediaPipe Hands per frame  →  T × 63 normalized landmarks
   │
-  ├── Random Forest per-frame  ─►  letter holds  ─►  letter sequence
+  ├── Random Forest per-frame  ─►  letter holds  ─►  noisy letter sequence
   │   (primary, used by `make transcribe-holds`)
   │
-  └── CTC Bi-LSTM v2 + char-LM beam search  ─►  letter sequence
+  └── CTC Bi-LSTM v2 + char-LM beam search  ─►  noisy letter sequence
       (alternative, used by `make transcribe-v2-fusion`)
 ```
-
-The pipeline produces a noisy letter sequence. A planned LLM agent layer
-will turn these into clean English; not yet implemented.
 
 ---
 
@@ -149,18 +134,15 @@ mkdir -p ~/.kaggle && mv ~/Downloads/kaggle.json ~/.kaggle/ && chmod 600 ~/.kagg
 
 ---
 
-## Models we ship
+## Models
 
-All trained models live under `experiments/`. The `latest` symlink points at
-the Phase 1 PPCA artifact (kept for backward compatibility).
+**Note:** Trained models are not included in the repo (too large for git). 
+Train them yourself using `make build-data` followed by training commands above.
 
-| Path | Model | Trained on | Use |
-|---|---|---|---|
-| `experiments/rf_balanced/` | **Random Forest** | Balanced Kaggle + FSWild (4k/letter) | Per-frame letter classification (primary) |
-| `experiments/mppca_balanced/` | Mixture of PPCAs (5–8 / letter) | Balanced merged | Per-frame, generative ablation |
-| `experiments/ppca_balanced/` | PPCA + Mixture-of-PPCAs (Phase 1) | Balanced merged | Per-frame baseline |
-| `experiments/latest_ctc_v2/` | **CTC Bi-LSTM v2** (3-layer × 256-hidden) | FSWild + Kaggle, weighted | Sequence model |
-| `experiments/svm_fswild/` | RBF-SVM | FSWild only | Ablation |
+Key models:
+- **Random Forest** (rf_balanced) - Per-frame classification, 82.7% accuracy
+- **CTC Bi-LSTM v2** - Sequence model, 47.1% letter error rate
+- **PPCA/MPPCA** - Baselines, 98.2% on static images
 
 ---
 
@@ -200,83 +182,32 @@ make evaluate-fusion-rf RF_DIR=experiments/rf_balanced
 ## Project structure
 
 ```
-cs6351-ASL-to-Text/
-├── docs/
-│   ├── STATUS_REPORT.md        Full experiment log + rationale
-│   ├── PPCA_PLAN.md            Phase 1 plan
-│   ├── CTC_PLAN.md             Phase 1c plan
-│   ├── OPENHANDS_PLAN.md       Phase 2 plan (deferred — see Future work)
-│   └── FINAL_PLAN.md           Consolidation plan
-│
-├── src/
-│   ├── preprocessing/
-│   │   ├── landmark_extractor.py       MediaPipe Hands → 63D
-│   │   ├── dataset.py                  ASLAlphabetDataset (per-letter splits)
-│   │   ├── combined_dataset.py         FSWild + Kaggle for CTC training
-│   │   ├── chicagofswild.py            FSWild video → landmark sequences
-│   │   ├── fswild_letter_frames.py     CTC forced-align → per-letter frames
-│   │   ├── balanced_letter_frames.py   Merge + balance + augment
-│   │   ├── temporal_augment.py         Time-warp / dropout / jitter
-│   │   └── augment.py                  Landmark jitter / rotate / mirror
-│   │
-│   └── models/
-│       ├── ppca.py                     Tipping-Bishop PPCA
-│       ├── ppca_classifier.py          PPCALogisticClassifier + Mixture
-│       ├── mppca.py                    Mixture of PPCAs (EM)
-│       ├── train_ppca.py
-│       ├── train_mppca.py
-│       ├── train_rf.py                 ★ Random Forest (the headliner)
-│       ├── train_svm.py                RBF-SVM ablation
-│       ├── refit_ppca_fswild.py        Refit PPCA on balanced data
-│       ├── ctc_lstm.py                 Constants used by decoder
-│       ├── ctc_lstm_v2.py              3-layer × 256 Bi-LSTM
-│       ├── train_ctc_v2.py
-│       ├── ctc_forced_align.py         Constrained Viterbi
-│       ├── decode_ctc.py               Greedy + beam + LM-aware beam
-│       ├── char_lm.py                  6-gram char language model
-│       ├── evaluate.py                 PPCA / MLP eval
-│       ├── mlp.py                      Phase 1 MLP baseline
-│       └── train_mlp.py
-│
-├── scripts/
-│   ├── transcribe_holds.py             ★ Primary inference (RF hold decoder)
-│   ├── transcribe_v2_fusion.py         CTC v2 + optional fusion
-│   ├── model_comparison_grid.py        4-model side-by-side viz
-│   ├── evaluate_ctc_v2.py              One-shot test eval
-│   ├── evaluate_fusion.py              Fusion sweep (PPCA emission)
-│   ├── evaluate_fusion_rf.py           Fusion sweep (RF emission)
-│   ├── analyze_frame.py                Phase 1 single-frame inference
-│   ├── visualize_ppca.py               PPCA visualizations
-│   ├── download_data.py                Kaggle ASL Alphabet downloader
-│   └── download_fswild.py              ChicagoFSWild downloader
-│
-├── data/                                Datasets (gitignored, regenerable)
-├── experiments/                         Trained model checkpoints (gitignored)
-├── segments/                            Per-video pipeline outputs (gitignored)
-├── example_videos/                      Demo videos
-├── Makefile
-└── requirements.txt
+src/
+├── preprocessing/          Feature extraction & data pipelines
+└── models/                 Model training (RF, CTC, PPCA, etc.)
+
+scripts/
+├── transcribe_holds.py    Primary inference script
+├── extract_hand_crops.py  Hand crop extraction for CNN training
+└── download_*.py          Data downloaders
+
+docs/                      Experiment logs and plans
+data/                      Datasets (regenerable, gitignored)
+experiments/               Model checkpoints (gitignored)
+tests/                     Test suite
 ```
 
 ---
 
 ## Future work
 
-These were scoped out for the course project and are good candidates for a
-follow-up:
-
 - **Word boundary / spacing detection.** Output is currently one continuous
   string. Hand-drop gaps and longer pauses are visible in the landmark
   stream but the current decoder doesn't use them.
-- **Spell correction / dictionary snapping.** Snap noisy substrings to the
-  closest English word via edit distance against a vocabulary. Cheap to
-  build, would clean up demo output substantially.
 - **Motion-based letters (J, Z).** These need a temporal model that sees
   finger trajectories, not single-frame poses. The current RF treats every
   frame independently and can't see the J curl or Z trace.
-- **LLM agent layer (Phase 3).** Take noisy letter sequences and produce
-  clean English text. Plan in [`docs/CTC_PLAN.md`](docs/CTC_PLAN.md).
-- **Word-level sign recognition (Phase 2).** [OpenHands](https://github.com/AI4Bharat/OpenHands)
+- **Word-level sign recognition.** [OpenHands](https://github.com/AI4Bharat/OpenHands)
   is a pretrained PyTorch toolkit with WLASL2000 checkpoints. We had it
   integrated and it works out of the box, but stripped it out to keep the
   repo focused on fingerspelling. Plan: [`docs/OPENHANDS_PLAN.md`](docs/OPENHANDS_PLAN.md).

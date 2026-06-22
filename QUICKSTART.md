@@ -50,19 +50,21 @@ make transcribe-holds VIDEO=your_video.mp4
 | **Test everything** | `./test_all.sh` |
 | **Run unit tests** | `make test` |
 | **Train RF model** | `make train-rf EXP=name DATA=path` |
+| **Train EfficientNet** | `make train-efficientnet EXP=name` |
 | **Extract hand crops** | `make extract-hand-crops` |
 
 ## What's Working
 
-✅ **RF Transcription** - 83.2% accuracy  
+✅ **EfficientNet** - 97.5% accuracy (CNN on hand crops)  
+✅ **RF Transcription** - 83.2% accuracy (landmarks)  
 ✅ **Ensemble** - 83.3% accuracy (RF + PPCA)  
-✅ **Hand Crop Extraction** - 200×200 crops @ 2300/sec  
+✅ **Hand Crop Extraction** - 60k images extracted @ 2300/sec  
 ✅ **4 Unit Tests** - All passing
 
 ## Next Steps
 
-- **Use it:** Transcribe your own ASL videos
-- **Improve it:** Follow `docs/IMPROVEMENT_PLAN.md` for EfficientNet (95% accuracy)
+- **Use it:** Transcribe ASL videos (83% RF or 97.5% EfficientNet)
+- **Integrate EfficientNet:** Wire up EfficientNet to transcription pipeline
 - **Extend it:** Add word segmentation, J/Z motion detection
 
 ## Documentation

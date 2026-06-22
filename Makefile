@@ -77,9 +77,18 @@ build-balanced-letter-frames:
 # Per-frame Letter Classifiers (trained on data/balanced_letter_frames/)
 # ============================================================
 
-# RANDOM FOREST -- the primary per-frame classifier (82.7% on FSWild test)
+# RANDOM FOREST -- the primary per-frame classifier (83.2% on FSWild test)
 train-rf:
 	PYTHONPATH=. $(PYTHON) -u -m src.models.train_rf $(if $(EXP),--exp-name $(EXP),) $(if $(DATA),--data-dir $(DATA),)
+
+# EFFICIENTNET -- CNN on hand crops (target: 95%+)
+train-efficientnet:
+	PYTHONPATH=. $(PYTHON) -u -m src.models.train_efficientnet \
+		$(if $(EXP),--exp-name $(EXP),) \
+		$(if $(DATA),--data-dir $(DATA),) \
+		$(if $(EPOCHS),--epochs $(EPOCHS),) \
+		$(if $(LR),--lr $(LR),) \
+		$(if $(BATCH),--batch-size $(BATCH),)
 
 # MPPCA -- mixture of PPCAs per letter (78.3%)
 train-mppca:

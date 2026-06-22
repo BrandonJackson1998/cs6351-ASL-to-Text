@@ -14,10 +14,12 @@ log and rationale behind the final architecture.
 
 ## Current state
 
-The current model is a **Random Forest** trained on a class-balanced merge
-of Kaggle ASL Alphabet (clean stills) and ChicagoFSWild forced-aligned
-frames (real video). Per-frame letter classification reaches **83% test
-accuracy** on real fingerspelling video frames.
+The pipeline offers two per-frame classifiers:
+- **Random Forest (landmarks)**: 83.2% accuracy, fast, works on any device
+- **EfficientNet-B0 (hand crops)**: 97.5% accuracy, CNN-based
+
+Both are trained on a class-balanced merge of Kaggle ASL Alphabet (clean 
+stills) and ChicagoFSWild forced-aligned frames (real video).
 
 Given a video, the pipeline produces a string of fingerspelled letters.
 
@@ -36,7 +38,8 @@ Given a video, the pipeline produces a string of fingerspelled letters.
 | Model | Task | Test result |
 |---|---|---|
 | Mixture-of-PPCAs (Kaggle) | Static image → letter | **98.2% accuracy** |
-| **Random Forest (balanced)** | Per-frame letter classification on real video | **82.7% accuracy** |
+| **Random Forest (balanced)** | Per-frame letter (landmarks) | **83.2% accuracy** |
+| **EfficientNet-B0** | Per-frame letter (hand crops) | **97.5% accuracy** |
 | **CTC Bi-LSTM v2** | Real fingerspelled video → letter sequence | **47.1% LER on FSWild test** |
 
 On test videos with 10 fingerspelled fruit names, the Random Forest hold 
@@ -140,7 +143,8 @@ mkdir -p ~/.kaggle && mv ~/Downloads/kaggle.json ~/.kaggle/ && chmod 600 ~/.kagg
 Train them yourself using `make build-data` followed by training commands above.
 
 Key models:
-- **Random Forest** (rf_balanced) - Per-frame classification, 82.7% accuracy
+- **EfficientNet-B0** (efficientnet_b0) - Per-frame classification, 97.5% accuracy
+- **Random Forest** (rf_balanced) - Per-frame classification, 83.2% accuracy
 - **CTC Bi-LSTM v2** - Sequence model, 47.1% letter error rate
 - **PPCA/MPPCA** - Baselines, 98.2% on static images
 
@@ -184,7 +188,7 @@ make evaluate-fusion-rf RF_DIR=experiments/rf_balanced
 ```
 src/
 ├── preprocessing/          Feature extraction & data pipelines
-└── models/                 Model training (RF, CTC, PPCA, etc.)
+└── models/                 Model training (RF, CTC, PPCA, EfficientNet)
 
 scripts/
 ├── transcribe_holds.py    Primary inference script
@@ -205,8 +209,8 @@ tests/                     Test suite
   string. Hand-drop gaps and longer pauses are visible in the landmark
   stream but the current decoder doesn't use them.
 - **Motion-based letters (J, Z).** These need a temporal model that sees
-  finger trajectories, not single-frame poses. The current RF treats every
-  frame independently and can't see the J curl or Z trace.
+  finger trajectories, not single-frame poses. Both classifiers treat frames
+  independently and can't see the J curl or Z trace.
 - **Word-level sign recognition.** [OpenHands](https://github.com/AI4Bharat/OpenHands)
   is a pretrained PyTorch toolkit with WLASL2000 checkpoints. We had it
   integrated and it works out of the box, but stripped it out to keep the

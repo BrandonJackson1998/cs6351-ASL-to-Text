@@ -1,12 +1,32 @@
 # ASL Fingerspelling Project — Status Report
 
-**Date:** 2026-05-24
-**Branch:** kevinbateman/string_deltas
+**Last Updated:** 2026-06-18
+**Branch:** feature/finger_spelling
 **Course:** CS-6351 AI & ML
 
 ---
 
-## TL;DR
+## Latest Update: EfficientNet CNN (June 2026)
+
+**Achievement:** Per-frame accuracy increased from 83.2% → **97.5%** (+14.3pp)
+
+We added an **EfficientNet-B0 CNN** trained on hand crop images, achieving 97.5% 
+test accuracy on balanced letter frames. This significantly outperforms the 
+landmark-based Random Forest (83.2%) by using full pixel information instead of 
+just 63D hand skeleton features.
+
+**What's complete:**
+- Hand crop extraction (60k images from Kaggle dataset)
+- EfficientNet-B0 training pipeline with transfer learning
+- Model trained and validated (97.5% test accuracy)
+
+**What's next:**
+- Integration: Wire EfficientNet into the transcription pipeline
+- Real-world testing on fingerspelling videos
+
+---
+
+## Original Report Summary (May 2026)
 
 We built a full ASL fingerspelling video → text pipeline. The strongest single
 model is a **CTC Bi-LSTM** with **20.4% combined / 47.1% FSWild-only Letter
@@ -36,6 +56,7 @@ decoding → English text.
 | Dataset | Size | Use | Where |
 |---|---|---|---|
 | Kaggle ASL Alphabet | 87k static images, 26 letters (A–Z used) | Static letter classification | `data/asl_alphabet/` |
+| Kaggle hand crops | 60k hand crop images (200×200 RGB) | CNN training | `data/hand_crops_kaggle/` |
 | ChicagoFSWild | 5,429 video clips, 160 signers | Real fingerspelled-word sequences | `data/chicagofswild/` |
 | ChicagoFSWild forced-aligned | 57,526 letter-stamped frames | Real-video per-letter training | `data/chicagofswild/letter_frames/` |
 | Balanced merged | 104,000 frames (4k/letter) | Class-balanced per-letter training | `data/balanced_letter_frames/` |

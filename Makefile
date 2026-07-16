@@ -153,6 +153,17 @@ transcribe-holds:
 		$(if $(SMOOTH),--smooth-window $(SMOOTH),) \
 		$(if $(OUT_JSON),--out-json $(OUT_JSON),)
 
+# WORD SEGMENTATION: Hold decoder + word boundary detection via hand-drop/pause gaps
+transcribe-words:
+	@PYTHONPATH=. MEDIAPIPE_VERBOSE=$(MEDIAPIPE_VERBOSE) $(PYTHON) scripts/transcribe_with_segmentation.py \
+		--input "$(VIDEO)" \
+		--emission-dir "$(or $(EMISSION),experiments/rf_balanced)" \
+		$(if $(MPPCA),--mppca,) \
+		$(if $(MIN_HOLD),--min-hold-seconds $(MIN_HOLD),) \
+		$(if $(PAUSE),--pause-threshold $(PAUSE),) \
+		$(if $(SMOOTH),--smooth-window $(SMOOTH),) \
+		$(if $(OUT_JSON),--out-json $(OUT_JSON),)
+
 # ENSEMBLE: RF + PPCA weighted voting. Expected 2-4% accuracy improvement.
 transcribe-ensemble:
 	@PYTHONPATH=. MEDIAPIPE_VERBOSE=$(MEDIAPIPE_VERBOSE) $(PYTHON) scripts/transcribe_ensemble.py \

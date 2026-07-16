@@ -1,14 +1,17 @@
 # ASL Video-to-Text
 
-**CS-6351: AI & ML — Course Project**
+**CS-6351: AI & ML — Course Project**  
 **Team:** Brandon Jackson & Kevin Bateman
 
-A pipeline that takes a fingerspelling video and produces a letter sequence,
-using MediaPipe Hands for landmark extraction and a stack of classical and
-neural ML models for letter recognition.
+Pipeline for converting ASL video to text using MediaPipe Hands for landmark extraction and neural models for recognition.
 
-See [`docs/STATUS_REPORT.md`](docs/STATUS_REPORT.md) for the full experiment
-log and rationale behind the final architecture.
+**Capabilities:**
+- Fingerspelling: 97.5% accuracy (26 letters)
+- Word segmentation: Automatic boundary detection
+- Word recognition: Temporal CNN (currently 4 words, expandable to 100s with large datasets)
+
+See [`HANDOFF.md`](HANDOFF.md) for project setup and training instructions.  
+See [`docs/STATUS_REPORT.md`](docs/STATUS_REPORT.md) for full experiment history.
 
 ---
 
@@ -25,8 +28,6 @@ Given a video, the pipeline produces a string of fingerspelled letters.
 
 ### Limitations
 
-- **No automatic spacing.** Output is a single string with consecutive letter
-  holds collapsed. Word boundaries are visible to humans but not segmented.
 - **Noisy output.** Filler letters appear between words during hand transitions.
 - **J and Z are weak.** Both are *motion-based* letters requiring temporal 
   models to see finger trajectories.
@@ -63,20 +64,28 @@ automatically on first use.
 
 **Note:** Models and example videos are not included in the repo. Train models with `make build-data` first.
 
+**Letter-level output (no word boundaries):**
 ```bash
 make transcribe-holds VIDEO=path/to/video.mp4
 ```
 
 Example output from a fruit-naming video:
-
 ```
 FIGHFIGPDATEYDATEQLIMENLIMEQGUAVANGRAUAQOLIVENOLIUEQPRNEPRETN
-GONANGQPAPAYANANAYAGUMUATNKRNATNASIONFUITNASIONFRUIT
 ```
 
-You can read the fruit names through the noise: `FIG`, `DATE`, `LIME`,
-`GUAVA`, `OLIVE`, `(P)RUNE`, `(M)ANGO`, `PAPAYA`, `(PA)SSIONFRUIT`,
-`FRUIT`.
+**Word-level output (with segmentation):**
+```bash
+make transcribe-words VIDEO=path/to/video.mp4
+```
+
+Example output with word boundaries:
+```
+FIG FIG | DATE DATE | LIME LIME | GUAVA GUAVA | OLIVE OLIVE
+```
+
+Word segmentation detects boundaries via hand-drop gaps and pause duration.
+See [`docs/WORD_SEGMENTATION.md`](docs/WORD_SEGMENTATION.md) for details.
 
 ---
 
@@ -205,9 +214,8 @@ tests/                     Test suite
 
 ## Future work
 
-- **Word boundary / spacing detection.** Output is currently one continuous
-  string. Hand-drop gaps and longer pauses are visible in the landmark
-  stream but the current decoder doesn't use them.
+- **LLM-based cleanup** (Phase 3). Pass segmented output to Claude API to
+  correct noisy letter sequences and produce grammatical English text.
 - **Motion-based letters (J, Z).** These need a temporal model that sees
   finger trajectories, not single-frame poses. Both classifiers treat frames
   independently and can't see the J curl or Z trace.
